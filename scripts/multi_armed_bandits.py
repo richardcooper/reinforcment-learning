@@ -67,24 +67,27 @@ class EpsilonGreedyAgents:
     ε-Greedy Agent.
     """
 
-    def __init__(self, arm_count, epsilons, step_sizes, trial_count):
+    def __init__(self, arm_count, epsilons, step_sizes, initial_estimates, trial_count):
         if not len(epsilons) == len(step_sizes):
             raise ValueError(f"epsilons and step_sizes must be the same length")
+        if not len(epsilons) == len(initial_estimates):
+            raise ValueError(f"epsilons and initial_estimates must be the same length")
         self.unique_agent_count = len(epsilons)
         self.trial_count = trial_count
         self.total_agent_count = self.unique_agent_count * self.trial_count
 
         self.epsilons = np.array(epsilons).reshape(-1, 1)
-        self.step_size_specs = np.array(step_sizes)
         self.step_sizes = np.repeat([(s or 1) for s in step_sizes], trial_count)
         self.use_sample_average = np.repeat(
             [(0 if s else 1) for s in step_sizes], trial_count
         )
-        self.expected_rewards = np.zeros((arm_count, len(epsilons), trial_count))
+        self.expected_rewards = np.zeros(
+            (arm_count, len(epsilons), trial_count)
+        ) + np.array(initial_estimates).reshape(1, -1, 1)
         self.times_tried = np.zeros((arm_count, len(epsilons), trial_count), dtype=int)
 
         self.env_range = np.arange(trial_count * len(epsilons))
-        self.short_descriptions = self.get_short_descriptions()
+        self.short_descriptions = self.get_short_descriptions(epsilons, step_sizes, initial_estimates)
 
     def choose_actions(self, states):
         best_actions = self.expected_rewards.argmax(axis=0)
@@ -117,15 +120,19 @@ class EpsilonGreedyAgents:
             rewards - expected_rewards[last_actions, self.env_range]
         )
 
-    def get_short_descriptions(self):
+    def get_short_descriptions(self, epsilons, step_sizes, initial_estimates):
         description_parts = []
-        if any(e for e in self.epsilons.flat != self.epsilons.flat[0]):
+        if any(e != self.epsilons[0] for e in epsilons):
             description_parts.append(
-                (f"ε = {e}" if e else "Greedy" for e in self.epsilons.flat)
+                (f"ε = {e}" if e else "Greedy" for e in epsilons)
             )
-        if any(s for s in self.step_size_specs != self.step_size_specs[0]):
+        if any(s != step_sizes[0] for s in step_sizes):
             description_parts.append(
-                (f"α = {s}" if s else "Sample-average" for s in self.step_size_specs)
+                (f"α = {s}" if s else "Sample-average" for s in step_sizes)
+            )
+        if any(i != initial_estimates[0] for i in initial_estimates):
+            description_parts.append(
+                (f"Q₁ = {i}" for i in initial_estimates)
             )
         return [", ".join(d) for d in zip(*description_parts)]
 
@@ -230,6 +237,7 @@ def figure_2_2():
         arm_count=arm_count,
         epsilons=[0, 0.1, 0.01],
         step_sizes=[0, 0, 0],
+        initial_estimates=[0, 0, 0],
         trial_count=trial_count,
     )
     visualize_bandit_training(
@@ -263,7 +271,11 @@ def exercise_2_5():
     )
     arm_count = 10
     agents = EpsilonGreedyAgents(
-        arm_count=arm_count, epsilons=[0.1, 0.1], step_sizes=[0, 0.1], trial_count=2000
+        arm_count=arm_count,
+        epsilons=[0.1, 0.1],
+        step_sizes=[0, 0.1],
+        initial_estimates=[0, 0],
+        trial_count=2000,
     )
     visualize_bandit_training(
         agents=agents,
@@ -277,6 +289,41 @@ def exercise_2_5():
     )
 
 
+def figure_2_3():
+    """
+    Recreate Figure 2.3 from the book.
+    """
+    st.markdown(
+        dedent(
+            f"""
+    ### Figure 2.3
+
+    _Recreation of figure 2.3 from the book_
+
+    The effect of optimistic initial action-value estimates on the 10-armed testbed. Both methods
+    used a constant step-size parameter, α = 0.1.
+    """
+        )
+    )
+    arm_count = 10
+    agents = EpsilonGreedyAgents(
+        arm_count=arm_count,
+        epsilons=[0, 0.1],
+        step_sizes=[0.1, 0.1],
+        initial_estimates=[5, 0],
+        trial_count=2000,
+    )
+    visualize_bandit_training(
+        agents=agents,
+        arm_count=arm_count,
+        bandit_mean=0.0,
+        bandit_scale=1.0,
+        arm_scale=1.0,
+        step_count=1000,
+    )
+
+
 if __name__ == "__main__":
     figure_2_2()
     exercise_2_5()
+    figure_2_3()
