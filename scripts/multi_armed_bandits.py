@@ -87,7 +87,9 @@ class EpsilonGreedyAgents:
         self.times_tried = np.zeros((arm_count, len(epsilons), trial_count), dtype=int)
 
         self.env_range = np.arange(trial_count * len(epsilons))
-        self.short_descriptions = self.get_short_descriptions(epsilons, step_sizes, initial_estimates)
+        self.short_descriptions = self.get_short_descriptions(
+            epsilons, step_sizes, initial_estimates
+        )
 
     def choose_actions(self, states):
         best_actions = self.expected_rewards.argmax(axis=0)
@@ -123,18 +125,76 @@ class EpsilonGreedyAgents:
     def get_short_descriptions(self, epsilons, step_sizes, initial_estimates):
         description_parts = []
         if any(e != self.epsilons[0] for e in epsilons):
-            description_parts.append(
-                (f"ε = {e}" if e else "Greedy" for e in epsilons)
-            )
+            description_parts.append((f"ε = {e}" if e else "Greedy" for e in epsilons))
         if any(s != step_sizes[0] for s in step_sizes):
             description_parts.append(
                 (f"α = {s}" if s else "Sample-average" for s in step_sizes)
             )
         if any(i != initial_estimates[0] for i in initial_estimates):
-            description_parts.append(
-                (f"Q₁ = {i}" for i in initial_estimates)
-            )
+            description_parts.append((f"Q₁ = {i}" for i in initial_estimates))
         return [", ".join(d) for d in zip(*description_parts)]
+
+
+class UpperConfidenceBoundAgents:
+    """
+    Upper Confidence Bound Agents.
+    """
+
+    def __init__(self, arm_count, trial_count, coefficients, step_sizes):
+        if not len(coefficients) == len(step_sizes):
+            raise ValueError(f"epsilons and step_sizes must be the same length")
+        self.unique_agent_count = len(coefficients)
+        self.trial_count = trial_count
+        self.total_agent_count = self.unique_agent_count * self.trial_count
+
+        self.coefficients = np.array(coefficients).reshape(-1, 1)
+        self.step_sizes = np.repeat([(s or 1) for s in step_sizes], trial_count)
+        self.use_sample_average = np.repeat(
+            [(0 if s else 1) for s in step_sizes], trial_count
+        )
+        self.expected_rewards = np.zeros((arm_count, len(coefficients), trial_count))
+        self.times_tried = np.zeros(
+            (arm_count, len(coefficients), trial_count), dtype=int
+        )
+        self.time_step = 0
+
+        self.env_range = np.arange(trial_count * len(coefficients))
+        self.short_descriptions = [f"UCB (c={c})" for c in coefficients]
+
+    def choose_actions(self, states):
+        self.time_step += 1
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            exploration_term = np.sqrt(
+                np.nan_to_num(np.log(self.time_step) / self.times_tried, copy=False)
+            )
+
+        chosen_action = (
+            self.expected_rewards + self.coefficients * exploration_term
+        ).argmax(axis=0)
+        self.last_actions = chosen_action
+        return self.last_actions
+
+    def learn(self, rewards):
+        # TODO there's a lot of mucking about with reshaping arrays here which
+        # obscures the actual algorithm. I suspect that if I knew how to numpy
+        # property, this could be cleaned up. It would be nice to revisit this.
+        last_actions = self.last_actions.view()
+        last_actions.shape = (-1,)
+        rewards = rewards.view()
+        rewards.shape = (-1,)
+        times_tried = self.times_tried.view()
+        times_tried.shape = (-1, self.env_range.shape[0])
+        expected_rewards = self.expected_rewards.view()
+        expected_rewards.shape = (-1, self.env_range.shape[0])
+
+        times_tried[last_actions, self.env_range] += 1
+        step_sizes = self.step_sizes / (
+            times_tried[last_actions, self.env_range] ** self.use_sample_average
+        )
+        expected_rewards[last_actions, self.env_range] += step_sizes * (
+            rewards - expected_rewards[last_actions, self.env_range]
+        )
 
 
 @st.cache(
@@ -323,7 +383,48 @@ def figure_2_3():
     )
 
 
+def figure_2_4():
+    """
+    Recreate Figure 2.4 from the book.
+    """
+    st.markdown(
+        dedent(
+            f"""
+    ### Figure 2.4
+
+    _Recreation of figure 2.4 from the book_
+
+    Average performance of UCB action selection on the 10-armed testbed. As shown, UCB generally
+    performs better than ε-greedy action selection, except in the first k steps, when it selects
+    randomly among the as-yet-untried actions.
+
+    _Note: This isn't yet a recreation of the figure in the book. The book figure compares UCB with
+    an ε-greedy agent with ε=0.1. This chart currently compares UCB with a greedy agent_
+    """
+        )
+    )
+    # I cannot fully replicate figure 2.4 until I can chart the metrics for two different agent
+    # classes on the same charts. Until now all graphs have been comparing agents of the same class
+    # just using different parameters.
+    arm_count = 10
+    agents = UpperConfidenceBoundAgents(
+        arm_count=arm_count,
+        trial_count=20000,
+        coefficients=[0, 2],
+        step_sizes=[0.1, 0.1],
+    )
+    visualize_bandit_training(
+        agents=agents,
+        arm_count=arm_count,
+        bandit_mean=0.0,
+        bandit_scale=1.0,
+        arm_scale=1.0,
+        step_count=1000,
+    )
+
+
 if __name__ == "__main__":
     figure_2_2()
     exercise_2_5()
     figure_2_3()
+    figure_2_4()
