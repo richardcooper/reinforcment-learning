@@ -198,7 +198,7 @@ class UpperConfidenceBoundAgents:
 
 
 @st.cache(
-    hash_funcs={st.DeltaGenerator.DeltaGenerator: lambda x: None},
+    hash_funcs={st.delta_generator.DeltaGenerator: lambda x: None},
     suppress_st_warning=True,
 )
 def generate_metrics(
